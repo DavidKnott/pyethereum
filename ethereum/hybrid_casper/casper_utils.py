@@ -1,6 +1,6 @@
-import copy
 import pkg_resources
-from ethereum import utils, messages, transactions, abi, genesis_helpers, config
+from ethereum import utils, messages, transactions, abi, genesis_helpers
+from ethereum.hybrid_casper.config import config
 from ethereum.hybrid_casper import consensus
 from ethereum.abi import ContractTranslator
 import serpent
@@ -35,16 +35,8 @@ def mk_status_flicker(validator_index, epoch, login, key):
 
 # Get a genesis state which is primed for Casper
 def make_casper_genesis(initial_validator, alloc, epoch_length, slash_delay):
-    # The Casper-specific config declaration
-    casper_config = copy.deepcopy(config.default_config)
-    casper_config['HOMESTEAD_FORK_BLKNUM'] = 0
-    casper_config['ANTI_DOS_FORK_BLKNUM'] = 0
-    casper_config['CLEARING_FORK_BLKNUM'] = 0
-    casper_config['CONSENSUS_STRATEGY'] = 'hybrid_casper'
-    casper_config['EPOCH_LENGTH'] = epoch_length
-    casper_config['CASPER_ADDRESS'] = utils.mk_contract_address(utils.privtoaddr(initial_validator), 4)
     # Create state and apply required state_transitions for initializing Casper
-    state = genesis_helpers.mk_basic_state(alloc, None, env=config.Env(config=casper_config))
+    state = genesis_helpers.mk_basic_state(alloc, None, env=config.Env(config=config.config_casper))
     state.gas_limit = 10**8
     consensus.initialize(state)
     inject_casper_contracts(state, initial_validator, epoch_length, slash_delay)

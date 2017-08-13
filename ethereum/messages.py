@@ -172,6 +172,18 @@ def apply_message(state, msg=None, **kwargs):
     return bytearray_to_bytestr(data) if result else None
 
 
+def apply_casper_transaction(state, tx):
+    if not tx.sender == state.config['NULL_SENDER'] and not tx.to == state.config['CASPER_ADDRESS']:
+        raise InvalidTransaction("Sender must be null sender and To must be the Casper contract address")
+
+    tx.gasprice = 0
+    post_gas_used = state.gas_used
+    state.gas_used = max(0, state.gas_used - tx.startgas)
+    success, output = apply_transaction(state, tx)
+    state.gas_used = post_gas_used
+    return success, output
+
+
 def apply_transaction(state, tx):
     state.logs = []
     state.suicides = []

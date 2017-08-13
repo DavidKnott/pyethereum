@@ -6,7 +6,7 @@ from ethereum.transactions import Transaction
 from ethereum.consensus_strategy import get_consensus_strategy
 from ethereum.config import config_homestead, config_tangerine, config_spurious, config_metropolis, default_config, Env
 from ethereum.pow.ethpow import Miner
-from ethereum.messages import apply_transaction
+from ethereum.messages import apply_transaction, apply_casper_transaction
 from ethereum.common import verify_execution_results, mk_block_from_prevstate, set_execution_results
 from ethereum.meta import make_head_candidate
 from ethereum.abi import ContractTranslator
@@ -164,8 +164,10 @@ class Chain(object):
         self.last_tx = None
 
     def direct_tx(self, transaction):
+        if (self.last_tx and not self.last_tx.to == self.head_state.env.config['CASPER_ADDRESS']) and transaction.to == self.head_state.env.config['CASPER_ADDRESS']:
+            raise TransactionFailed("Please put all Casper transactions before other transactions") 
         self.last_tx, self.last_sender = transaction, None
-        success, output = apply_transaction(self.head_state, transaction)
+        success, output = apply_casper_transaction(self.head_state, transaction) if transaction.to == self.head_state.env.config['CASPER_ADDRESS'] else apply_transaction(self.head_state, transaction)
         self.block.transactions.append(transaction)
         if not success:
             raise TransactionFailed()
@@ -181,8 +183,10 @@ class Chain(object):
 
     def call(self, sender=k0, to=b'\x00' * 20, value=0, data=b'', startgas=STARTGAS, gasprice=GASPRICE):
         snapshot = self.snapshot()
+        last_tx = self.last_tx
         try:
             output = self.tx(sender, to, value, data, startgas, gasprice)
+            self.last_tx = last_tx
             self.revert(snapshot)
             return output
         except Exception as e:
@@ -212,6 +216,7 @@ class Chain(object):
             b = Miner(b).mine(rounds=100, start_nonce=0)
             assert self.chain.add_block(b)
         self.change_head(b.header.hash, coinbase)
+        self.last_tx = None
         return b
 
     def change_head(self, parent, coinbase=a0):

@@ -6,6 +6,7 @@ from ethereum.db import EphemDB
 from ethereum.hybrid_casper import casper_utils
 from ethereum.hybrid_casper.casper_utils import mk_prepare, mk_commit
 from ethereum.slogging import get_logger
+
 logger = get_logger()
 
 _db = new_db()
@@ -16,6 +17,10 @@ _db = new_db()
 
 EPOCH_LENGTH = 25
 SLASH_DELAY = 864
+tester.k0 = utils.sha3("null_sender")
+tester.a0 = utils.privtoaddr(tester.k0)
+tester.keys[0] = tester.k0
+tester.accounts[0] = tester.a0
 ALLOC = {a: {'balance': 5*10**19} for a in tester.accounts[:10]}
 k0, k1, k2, k3, k4, k5, k6, k7, k8, k9 = tester.keys[:10]
 a0, a1, a2, a3, a4, a5, a6, a7, a8, a9 = tester.accounts[:10]
@@ -37,9 +42,10 @@ def init_multi_validator_chain_and_casper(validator_keys):
     t, casper = init_chain_and_casper()
     mine_epochs(t, 1)
     for k in validator_keys[1:]:
-        valcode_addr = t.tx(k0, '', 0, casper_utils.mk_validation_code(utils.privtoaddr(k)))
+        valcode_addr = t.call(k, '', 0, casper_utils.mk_validation_code(utils.privtoaddr(k)))
         assert utils.big_endian_to_int(t.call(k0, casper_utils.purity_checker_address, 0, casper_utils.ct.encode('submit', [valcode_addr]))) == 1
-        casper.deposit(valcode_addr, utils.privtoaddr(k), value=3 * 10**18)
+        casper.deposit(valcode_addr, utils.privtoaddr(k), value=3 * 10**18, sender=k0)
+        t.tx(k, '', 0, casper_utils.mk_validation_code(utils.privtoaddr(k)))
         t.mine()
     casper.prepare(mk_prepare(0, 1, epoch_blockhash(t, 1), epoch_blockhash(t, 0), 0, epoch_blockhash(t, 0), k0))
     casper.commit(mk_commit(0, 1, epoch_blockhash(t, 1), 0, k0))
@@ -86,6 +92,28 @@ def test_mining_block_rewards(db):
     assert t.chain.state.get_balance(a1) == t.chain.env.config['BLOCK_REWARD'] * 3 + t.chain.mk_poststate_of_blockhash(blk2.hash).get_balance(a1)
     assert t.chain.state.get_balance(a1) == t.chain.env.config['BLOCK_REWARD'] * 4 + t.chain.mk_poststate_of_blockhash(genesis.hash).get_balance(a1)
     assert blk2.prevhash == genesis.hash
+
+def test_casper_transactions_cost_no_gas(db):
+    t, casper = init_chain_and_casper()
+    valcode_addr = t.call(k1, '', 0, casper_utils.mk_validation_code(utils.privtoaddr(k1)))
+    assert t.head_state.gas_used == 0
+    casper.deposit(valcode_addr, utils.privtoaddr(k1), value=3 * 10**18, sender=k0)
+    assert t.head_state.gas_used == 0
+
+def test_casper_transactions_must_be_first(db):
+    t, casper = init_chain_and_casper()
+    valcode_addr = t.tx(k1, '', 0, casper_utils.mk_validation_code(utils.privtoaddr(k1)))
+    with pytest.raises(tester.TransactionFailed):
+        casper.deposit(valcode_addr, utils.privtoaddr(k1), value=3 * 10**18, sender=k0)
+
+def test_casper_transactions_must_be_first_for_block_to_be_mined(db):
+    t, casper = init_chain_and_casper()
+    normal_tx = tester.Transaction(t.head_state.get_nonce(utils.privtoaddr(k1)), 50000, 60000, b'', 0, casper_utils.mk_validation_code(utils.privtoaddr(k1))).sign(k1)
+    tester.apply_transaction(t.head_state, normal_tx)
+    valcode_addr = t.call(k1, '', 0, casper_utils.mk_validation_code(utils.privtoaddr(k1)))
+    casper.deposit(valcode_addr, utils.privtoaddr(k1), value=3 * 10**18, sender=k0)
+    with pytest.raises(AssertionError):
+        t.mine()
 
 def test_simple_chain(db):
     t, casper = init_chain_and_casper()

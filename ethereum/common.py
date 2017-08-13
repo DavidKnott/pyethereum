@@ -6,7 +6,8 @@ from ethereum.utils import sha3, encode_hex
 import rlp
 from ethereum.slogging import get_logger
 from ethereum.exceptions import InsufficientBalance, BlockGasLimitReached, \
-    InsufficientStartGas, InvalidNonce, UnsignedTransaction
+    InsufficientStartGas, InvalidNonce, UnsignedTransaction, \
+    InvalidTransaction
 from ethereum.messages import apply_transaction
 log = get_logger('eth.block')
 
@@ -117,6 +118,16 @@ def add_transactions(state, block, txqueue, min_gasprice=0):
                 InvalidNonce, UnsignedTransaction) as e:
             log.error(e)
     log.info('Added %d transactions' % (len(block.transactions) - pre_txs))
+
+# Validate that casper transactions come first
+def validate_casper_transaction_precedence(state, block):
+    reached_normal_transactions = False
+    for tx in block.transactions:
+        if not tx.to == state.env.config['CASPER_ADDRESS']:
+            reached_normal_transactions = True
+        elif reached_normal_transactions: 
+            raise InvalidTransaction("Please put all Casper transactions first")
+    return True
 
 # Validate that the transaction list root is correct
 def validate_transaction_tree(state, block):
